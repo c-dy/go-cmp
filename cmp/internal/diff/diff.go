@@ -119,7 +119,7 @@ func (r Result) Similar() bool {
 	return r.NumSame+1 >= r.NumDiff
 }
 
-var randInt = rand.New(rand.NewSource(time.Now().Unix())).Intn(2)
+var reverseFirst = rand.New(rand.NewSource(time.Now().Unix())).Intn(2) == 0
 
 // Difference reports whether two lists of lengths nx and ny are equal
 // given the definition of equality provided as f.
@@ -168,17 +168,6 @@ func Difference(nx, ny int, f EqualFunc) (es EditScript) {
 	// A vertical edge is equivalent to inserting a symbol from list Y.
 	// A diagonal edge is equivalent to a matching symbol between both X and Y.
 
-	// To ensure flexibility in changing the algorithm in the future,
-	// introduce some degree of deliberate instability.
-	// This is achieved by fiddling the zigzag iterator to start searching
-	// the graph starting from the bottom-right versus than the top-left.
-	// The result may differ depending on the starting search location,
-	// but still produces a valid edit script.
-	zigzagInit := randInt // either 0 or 1
-	if flags.Deterministic {
-		zigzagInit = 0
-	}
-
 	// Invariants:
 	//	• 0 ≤ fwdPath.X ≤ (fwdFrontier.X, revFrontier.X) ≤ revPath.X ≤ nx
 	//	• 0 ≤ fwdPath.Y ≤ (fwdFrontier.Y, revFrontier.Y) ≤ revPath.Y ≤ ny
@@ -225,11 +214,19 @@ func Difference(nx, ny int, f EqualFunc) (es EditScript) {
 	// understanding how the algorithm works. See debug_enable.go.
 	f = debug.Begin(nx, ny, f, &fwdPath.es, &revPath.es)
 	for {
+		// Non-deterministically start with either the forward or reverse direction
+		// to introduce some deliberate instability so that we have the flexibility
+		// to change this algorithm in the future.
+		if reverseFirst && !flags.Deterministic {
+			reverseFirst = false
+			goto reverseSearch
+		}
+
 		// Forward search from the beginning.
 		if fwdFrontier.X >= revFrontier.X || fwdFrontier.Y >= revFrontier.Y || searchBudget == 0 {
 			break
 		}
-		for stop1, stop2, i := false, false, zigzagInit; !(stop1 && stop2) && searchBudget > 0; i++ {
+		for stop1, stop2, i := false, false, 0; !(stop1 && stop2) && searchBudget > 0; i++ {
 			// Search in a diagonal pattern for a match.
 			z := zigzag(i)
 			p := point{fwdFrontier.X + z, fwdFrontier.Y - z}
@@ -263,6 +260,7 @@ func Difference(nx, ny int, f EqualFunc) (es EditScript) {
 			fwdFrontier.Y++
 		}
 
+	reverseSearch:
 		// Reverse search from the end.
 		if fwdFrontier.X >= revFrontier.X || fwdFrontier.Y >= revFrontier.Y || searchBudget == 0 {
 			break
